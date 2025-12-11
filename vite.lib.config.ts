@@ -1,0 +1,29 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    lib: {
+      entry: path.resolve(__dirname, 'library.ts'),
+      name: 'ReactRealisticSnow',
+      formats: ['es', 'cjs'],
+      fileName: (format) => (format === 'es' ? 'index.esm.js' : 'index.js'),
+    },
+    rollupOptions: {
+      // Externalize dependencies that should not be bundled
+      external: ['react', 'react-dom', 'react/jsx-runtime'],
+      output: {
+        exports: 'named',
+        // Provide global variables for UMD build (if needed)
+        globals: {
+          react: 'React',
+          'react-dom': 'ReactDOM',
+        },
+      },
+    },
+    outDir: 'dist',
+    emptyOutDir: true,
+  },
+});
