@@ -1,8 +1,8 @@
 {
   "name": "react-cinematic-snow",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A high-performance, cinematic, and realistic React snowfall effect library with WebGL and Canvas rendering.",
-  "homepage": "https://khoa.ma",
+  "homepage": "https://khoa.ma/work/react-cinematic-snow",
   "repository": {
     "type": "git",
     "url": "https://github.com/khoama/react-cinematic-snow"
@@ -12,7 +12,14 @@
   },
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
-  "types": "dist/index.d.ts",
+  "types": "dist/library.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/library.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    }
+  },
   "files": [
     "dist",
     "README.md"
@@ -20,8 +27,9 @@
   "scripts": {
     "start": "vite",
     "build": "tsc && vite build",
-    "build:lib": "tsc -p tsconfig.lib.json && vite build --config vite.lib.config.ts",
-    "test": "jest"
+    "build:lib": "rm -rf dist && vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json",
+    "test": "jest",
+    "prepublishOnly": "npm run build:lib"
   },
   "keywords": [
     "react",

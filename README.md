@@ -2,8 +2,11 @@
 
 A high-performance, cinematic, and realistic snowfall effect for React applications, built with TypeScript and dual WebGL/Canvas rendering.
 
-![License](https://img.shields.io/npm/l/react-cinematic-snow)
-![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue)
+[![License](https://img.shields.io/npm/l/react-cinematic-snow)](https://www.npmjs.com/package/react-cinematic-snow)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue)](https://www.typescriptlang.org/)
+[![Demo](https://img.shields.io/badge/Demo-Live-brightgreen)](https://khoa.ma/work/react-cinematic-snow)
+
+**[🎬 Live Demo](https://khoa.ma/work/react-cinematic-snow)**
 
 ## Features
 
