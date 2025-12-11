@@ -1,6 +1,6 @@
 {
   "name": "react-cinematic-snow",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A high-performance, cinematic, and realistic React snowfall effect library with WebGL and Canvas rendering.",
   "homepage": "https://khoa.ma/work/react-cinematic-snow",
   "repository": {
