@@ -31,11 +31,16 @@ void main() {
 
 // Fragment shader - draws snowflakes (smooth circles for small, polygons for large)
 const FRAGMENT_SHADER = `
-precision mediump float;
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+  precision highp float;
+#else
+  precision mediump float;
+#endif
 
 uniform vec3 u_color;
 uniform float u_roughness;
 uniform float u_layer; // 0 = back (dots), 1 = mid, 2 = front (polygons)
+uniform float u_isMobile; // 1.0 for mobile, 0.0 for desktop
 
 varying float v_opacity;
 varying float v_seed;
@@ -126,7 +131,27 @@ void main() {
     return;
   }
   
-  // Mid and Front layers: Use polygon shapes for visible detail
+  // Mobile devices: use simpler irregular shapes (distorted circles)
+  // This avoids the complex polygon ray-casting that fails on some mobile GPUs
+  if (u_isMobile > 0.5) {
+    // Create irregular shape by varying the radius based on angle
+    float angle = atan(coord.y, coord.x);
+    float irregularity = 0.0;
+    
+    // Add multiple harmonics for irregular shape (like a bumpy circle)
+    irregularity += sin(angle * 5.0 + v_seed) * 0.08 * u_roughness;
+    irregularity += sin(angle * 7.0 + v_seed * 2.3) * 0.05 * u_roughness;
+    irregularity += sin(angle * 3.0 + v_seed * 0.7) * 0.06 * u_roughness;
+    
+    float threshold = 0.35 + irregularity;
+    float alpha = 1.0 - smoothstep(threshold - 0.05, threshold + 0.05, dist);
+    
+    if (alpha < 0.01) discard;
+    gl_FragColor = vec4(u_color, alpha * v_opacity);
+    return;
+  }
+  
+  // Desktop: Use polygon shapes for visible detail
   // But still use circles for very small particles
   if (v_size < 6.0) {
     float alpha = 1.0 - smoothstep(0.3, 0.5, dist);
@@ -135,7 +160,7 @@ void main() {
     return;
   }
   
-  // Polygon rendering for larger mid/front particles
+  // Polygon rendering for larger mid/front particles (desktop only)
   vec2 rotatedCoord = rotate2D(coord, v_rotation);
   
   int numPoints = 5 + int(hash(v_seed * 3.7) * 4.0);
@@ -161,6 +186,7 @@ export interface WebGLState {
   opacityBuffer: WebGLBuffer;
   seedBuffer: WebGLBuffer;
   rotationBuffer: WebGLBuffer;
+  isMobile: boolean;
   locations: {
     position: number;
     size: number;
@@ -171,6 +197,7 @@ export interface WebGLState {
     color: WebGLUniformLocation;
     roughness: WebGLUniformLocation;
     layer: WebGLUniformLocation;
+    isMobile: WebGLUniformLocation;
   };
 }
 
@@ -212,6 +239,20 @@ function createProgram(gl: WebGLRenderingContext): WebGLProgram | null {
   return program;
 }
 
+// Detect if running on a mobile device
+function detectMobile(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  
+  // Check for touch capability and mobile user agent
+  const hasTouchScreen = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const mobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  
+  // Also check screen size as a fallback
+  const isSmallScreen = window.innerWidth <= 768;
+  
+  return hasTouchScreen && (mobileUA || isSmallScreen);
+}
+
 export function initWebGL(canvas: HTMLCanvasElement): WebGLState | null {
   const gl = canvas.getContext('webgl', { 
     alpha: true, 
@@ -236,8 +277,9 @@ export function initWebGL(canvas: HTMLCanvasElement): WebGLState | null {
   const colorLoc = gl.getUniformLocation(program, 'u_color');
   const roughnessLoc = gl.getUniformLocation(program, 'u_roughness');
   const layerLoc = gl.getUniformLocation(program, 'u_layer');
+  const isMobileLoc = gl.getUniformLocation(program, 'u_isMobile');
   
-  if (!resolutionLoc || !colorLoc || !roughnessLoc || !layerLoc) return null;
+  if (!resolutionLoc || !colorLoc || !roughnessLoc || !layerLoc || !isMobileLoc) return null;
   
   // Create buffers
   const positionBuffer = gl.createBuffer();
@@ -248,6 +290,9 @@ export function initWebGL(canvas: HTMLCanvasElement): WebGLState | null {
   
   if (!positionBuffer || !sizeBuffer || !opacityBuffer || !seedBuffer || !rotationBuffer) return null;
   
+  // Detect mobile once during initialization
+  const isMobile = detectMobile();
+  
   return {
     gl,
     program,
@@ -256,6 +301,7 @@ export function initWebGL(canvas: HTMLCanvasElement): WebGLState | null {
     opacityBuffer,
     seedBuffer,
     rotationBuffer,
+    isMobile,
     locations: {
       position: positionLoc,
       size: sizeLoc,
@@ -266,6 +312,7 @@ export function initWebGL(canvas: HTMLCanvasElement): WebGLState | null {
       color: colorLoc,
       roughness: roughnessLoc,
       layer: layerLoc,
+      isMobile: isMobileLoc,
     },
   };
 }
@@ -317,6 +364,7 @@ export function renderWebGL(
   gl.uniform3f(locations.color, r, g, b);
   gl.uniform1f(locations.roughness, roughness);
   gl.uniform1f(locations.layer, layer);
+  gl.uniform1f(locations.isMobile, state.isMobile ? 1.0 : 0.0);
   
   // Prepare particle data
   const positions = new Float32Array(particles.length * 2);
@@ -330,14 +378,24 @@ export function renderWebGL(
     positions[i * 2] = p.x;
     positions[i * 2 + 1] = p.y;
     
-    // Size calculation: smaller particles need relatively larger point sprites
-    // to be visible, larger particles can use standard scaling
-    const sizeMultiplier = p.radius < 1.0 ? 5.5 : (p.radius < 1.5 ? 4.5 : 3.5);
-    sizes[i] = Math.max(5, p.radius * sizeMultiplier);
+    // Size calculation: WebGL point sprites need to be scaled to match Canvas pixel size
+    // On mobile, use smaller multipliers to avoid overcrowding
+    // Canvas draws at actual radius, WebGL needs point sprite size
+    if (state.isMobile) {
+      // Mobile: more conservative sizing to match Canvas appearance
+      const sizeMultiplier = p.radius < 1.0 ? 3.0 : (p.radius < 1.5 ? 2.5 : 2.0);
+      sizes[i] = Math.max(2, p.radius * sizeMultiplier);
+    } else {
+      // Desktop: slightly larger for visibility on bigger screens
+      const sizeMultiplier = p.radius < 1.0 ? 5.5 : (p.radius < 1.5 ? 4.5 : 3.5);
+      sizes[i] = Math.max(5, p.radius * sizeMultiplier);
+    }
     
-    // Opacity boost for all particles to improve visibility
-    // Smaller particles need more boost to be visible
-    const opacityBoost = p.radius < 1.0 ? 2.2 : (p.radius < 1.5 ? 1.8 : 1.4);
+    // Opacity boost for visibility
+    // Mobile needs less boost since particles are smaller and don't overlap as much
+    const opacityBoost = state.isMobile 
+      ? (p.radius < 1.0 ? 1.5 : (p.radius < 1.5 ? 1.3 : 1.1))
+      : (p.radius < 1.0 ? 2.2 : (p.radius < 1.5 ? 1.8 : 1.4));
     opacities[i] = Math.min(1.0, p.opacity * layerOpacity * globalOpacity * opacityBoost);
     
     // Use stable shapeSeed for consistent shape
